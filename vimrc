@@ -1,6 +1,3 @@
-" Syntax Highlighting on
-syntax on
-
 " Set up Vundle, and install your desired plugins.
 set nocompatible
 filetype off
@@ -341,3 +338,5 @@ function! DoVimSettings()
 endfunction
 autocmd! BufEnter *.vim,*.vimrc call DoVimSettings()
 
+" Syntax Highlighting on
+syntax on
