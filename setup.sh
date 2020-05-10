@@ -39,6 +39,7 @@ echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
 # Add a couple convenience aliases to the bash_aliases file.
 echo "alias ..='cd ..'" >> ~/.bash_aliases
 echo "alias qgit=git" >> ~/.bash_aliases
+echo "alias pip=pip3" >> ~/.bash_aliases
 
 # Source the bashrc
 source ~/.bashrc
