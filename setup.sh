@@ -25,14 +25,20 @@ pip3 install --user gitpython
 # Wheel is required for termcolor, which is required for gitflow
 pip3 install --user wheel
 pip3 install --user termcolor
-cp ./gitflow.py ~/.local/bin
-echo "alias gitflow=~/.local/bin/gitflow.py" >> ~/.bash_aliases
+cp ./gitflow.py ~/.local/bin/gitflow
 
 # Overwrite the vimrc, tmux config, and gitconfig.
 cp ./vimrc ~/.vimrc
 cp ./tmux.conf ~/.tmux.conf
 cp ./tmux.reset.conf ~/.tmux.reset.conf
 cp ./gitconfig ~/.gitconfig
+
+# Put the local bin (including gitflow) in the path.
+echo 'export PATH=$PATH:~/.local/bin' >> ~/.bashrc
+
+# Add a couple convenience aliases to the bash_aliases file.
+echo "alias ..='cd ..'" >> ~/.bash_aliases
+echo "alias qgit=git" >> ~/.bash_aliases
 
 # Source the bashrc
 source ~/.bashrc
