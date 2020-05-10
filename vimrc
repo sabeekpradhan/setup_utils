@@ -1,7 +1,5 @@
-" Syntax Highlighting on if we have colors
-if &t_Co > 1
-  syntax on
-endif
+" Syntax Highlighting on
+syntax on
 
 " Set up Vundle, and install your desired plugins.
 set nocompatible
@@ -153,8 +151,7 @@ nnoremap <c-k> <C-w>w
 " * Ctrl-m Ctrl-h to move the current tab to the left
 " * Ctrl-m Ctrl-l to move the current tab to the right
 fun! CloseTab()
-  let choice = confirm("Close tab?" "&yes\n&no", 1)
-  if choice == 1
+  if confirm("Close tab?", "&yes\n&no", 1) == 1
     :tabclose
   endif
 endfun
