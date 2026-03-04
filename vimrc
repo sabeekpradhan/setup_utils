@@ -1,3 +1,35 @@
+" =============================================================================
+" Shortcuts & Utilities (leader = backslash '\')
+" =============================================================================
+" fzf:
+"   \f            Open GFiles (git-aware fuzzy file finder)
+"
+" Splits & Windows:
+"   :vs           Vertical split
+"   :sp           Horizontal split
+"   Ctrl-j / k    Switch between splits
+"   :Vs           Alias for :vs
+"
+" Tabs:
+"   Ctrl-n        New tab
+"   Ctrl-x        Close tab (with confirmation)
+"   Ctrl-h / l    Switch tabs left/right
+"
+" General:
+"   :TwoSpace     Set indent to 2 spaces
+"   :FourSpace    Set indent to 4 spaces
+"   :C / :U       Comment/uncomment lines (visual, filetype-aware)
+" =============================================================================
+"
+" Setup:
+"   1. Clone Vundle:
+"        git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/Vundle.vim
+"   2. Install plugins (from shell):
+"        vim +PluginInstall +qall
+"      or from within vim:
+"        :PluginInstall
+" =============================================================================
+
 " Set up Vundle, and install your desired plugins.
 set nocompatible
 filetype off
@@ -7,49 +39,15 @@ call vundle#begin()
 " Manage Vundle with Vundle
 Plugin 'gmarik/Vundle.vim'
 
-" YCM, the big one!
-Plugin 'ycm-core/YouCompleteMe'
-" Syntax in glog files
-Plugin 'Peaches491/vim-glog-syntax'
 " Faster cmdt fuzzy searching
 Plugin 'junegunn/fzf'
 Plugin 'junegunn/fzf.vim'
 
-" Handle git within vim 
-Plugin 'tpope/vim-fugitive'
-
 call vundle#end()
 filetype plugin indent on
 
-let g:ycm_global_ycm_extra_conf='~/.ycm_extra_conf.py'
-
-" In visual mode, use Ctrl-G for the currently highlighted text.
-vnoremap <C-G> y:Ggrep -l '<c-R>"'<cr>
-
-" YCM commands
-let g:ycm_goto_buffer_command = 'horizontal-split'
-nnoremap <C-f> :YcmCompleter FixIt<CR>
-nnoremap <C-t> :YcmCompleter GetType<CR>
-
 " Activate GFiles search with backslash-f
 nmap <leader>f :GFiles<cr>
-
-" Fugitive options for Gblame:
-" A     resize to end of author column
-" C     resize to end of commit column
-" D     resize to end of date/time column
-" gq    close blame, then |:Gedit| to return to work
-"       tree version
-" <CR>  close blame, and jump to patch that added line
-"       (or directly to blob for boundary commit)
-" o     jump to patch or blob in horizontal split
-" O     jump to patch or blob in new tab
-" p     jump to patch or blob in preview window
-" -     reblame at commit
-" ~     reblame at [count]th first grandparent
-" P     reblame at [count]th parent (like HEAD^[count]).e. backslash, i.e. 'leader')
-"
-" Visit https://github.com/tpope/vim-fugitive/blob/master/doc/fugitive.txt for more options.
 
 " Convert default indentation between 2 and 4 spaces.
 command! TwoSpace set shiftwidth=2 | set softtabstop=2
@@ -303,17 +301,17 @@ function! DoPythonSettings()
   setlocal shiftwidth=4
 
   " Remove whitespace before and after brackets
-  silent! %s/\([^ #]\)[ ]\+)/\1)/g
-  silent! %s/([ ]\+\([^ ]\)/(\1/g
-  silent! %s/\([^ #]\)[ ]\+\]/\1]/g
-  silent! %s/\[[ ]\+\([^ ]\)/[\1/g
+  " silent! %s/\([^ #]\)[ ]\+)/\1)/g
+  " silent! %s/([ ]\+\([^ ]\)/(\1/g
+  " silent! %s/\([^ #]\)[ ]\+\]/\1]/g
+  " silent! %s/\[[ ]\+\([^ ]\)/[\1/g
 
   " Fix Dictionary lint
-  silent! %s/\("\|'\)[ ]\+:[ ]*\([^ ]\)/\1: \2/g
-  silent! %s/\("\|'\)[ ]*: [ ]\+\([^ ]\)/\1: \2/g
+  " silent! %s/\("\|'\)[ ]\+:[ ]*\([^ ]\)/\1: \2/g
+  " silent! %s/\("\|'\)[ ]*: [ ]\+\([^ ]\)/\1: \2/g
 
   " Fix iterator lint
-  silent! %s/^\([ ]*for [^ ]\+,\)\([^ ]\+ in\)/\1 \2/g
+  " silent! %s/^\([ ]*for [^ ]\+,\)\([^ ]\+ in\)/\1 \2/g
 
   setlocal smartindent cinwords=if,elif,else,for,while,try,except,finally,def,class
 
