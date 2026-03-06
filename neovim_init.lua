@@ -7,9 +7,9 @@
 -- Shortcuts (leader = backslash '\')
 -- -----------------------------------------------------------------------------
 -- Telescope:
---   \f            Fuzzy find git files
+--   Ctrl-p        Fuzzy find git files
 --   \b            Fuzzy find open buffers
---   \g            Live grep across project
+--   Ctrl-f        Live grep across project
 --   \s            Find document symbols (functions, classes, etc.)
 --
 -- nvim-tree:
@@ -239,9 +239,9 @@ map("v", "<C-x>", function()
 end)
 
 -- Telescope keymaps
-map("n", "<leader>f", "<Cmd>Telescope git_files<CR>")
+map("n", "<C-p>", "<Cmd>Telescope git_files<CR>")
 map("n", "<leader>b", "<Cmd>Telescope buffers<CR>")
-map("n", "<leader>g", "<Cmd>Telescope live_grep<CR>")
+map("n", "<C-f>", "<Cmd>Telescope live_grep<CR>")
 map("n", "<leader>s", "<Cmd>Telescope lsp_document_symbols<CR>") -- functions/classes list
 
 -- nvim-tree
@@ -421,4 +421,3 @@ vim.diagnostic.config({
   update_in_insert = false, -- don't flicker while typing
   severity_sort   = true,
 })
-
