@@ -1,21 +1,28 @@
 [user]
-  name = sabeekpradhan
+  name = sabeek
   email = sabeekpradhan@gmail.com
 [core]
   editor = vim
   excludesfile = ~/.gitignore
+  pager = delta --paging=always
+[delta]
+  side-by-side = true
+  line-numbers = true
+  navigate = true
+[interactive]
+  diffFilter = delta --color-only
+[diff]
+  tool = vimdiff
+  colorMoved = default
 [credential]
   helper = cache --timeout=86400
 [push]
   default = matching
-[diff]
-  tool = vimdiff
 [merge]
   tool = vimdiff
+  conflictstyle = diff3
 [fetch]
   prune = true
-[pull]
-  rebase = preserve
 [branch]
   autoSetupMerge = always
 [alias]
@@ -31,6 +38,25 @@
   pushh = push origin HEAD
   pushhf = push --force-with-lease origin HEAD
   amend = commit --amend -C HEAD
+  # Rebase the full stack (including ancestors) onto a new branch.
+  # If two arguments are given, the second argument is dropped
+  # from the stack (e.g. if it's the branch for a PR that merged
+  # via a squash merge)
+  stack-rebase = "!f() { \
+    if [ \"$#\" -eq 1 ]; then \
+      echo \"Rebasing stack (all ancestors) onto '$1' from $(git symbolic-ref --short HEAD)\"; \
+      git rebase --rebase-merges --update-refs \"$1\"; \
+    elif [ \"$#\" -eq 2 ]; then \
+      echo \"Rebasing stack onto '$1' and dropping branch '$2' (starting from $(git symbolic-ref --short HEAD))\"; \
+      git rebase --onto \"$1\" \"$2\" --rebase-merges --update-refs; \
+    else \
+      echo \"usage: git stack-rebase <new-base> [dropped-branch]\" >&2; \
+      exit 1; \
+    fi; \
+  }; f"
+  # Pull and checkout aliases that also update the submodules.
+  pulls = "!f() { git pull \"$@\" && git submodule update --init --recursive; }; f"
+  cos = "!f() { git checkout \"$@\" && git submodule update --init --recursive; }; f"
   oldest-ancestor = !bash -c 'diff --old-line-format= --new-line-format= <(git rev-list --first-parent \"${1:-master}\") <(git rev-list --first-parent \"${2:-HEAD}\") | head -1' -
   pullr = pull --rebase=preserve
   refresh = remote update -p
