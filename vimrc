@@ -32,6 +32,27 @@
 
 " Set up Vundle, and install your desired plugins.
 set nocompatible
+
+" Restore terminal screen when exiting vim (alternate screen buffer)
+"
+" Most terminals have two screen buffers: the normal one (where your shell
+" prompt and command history live) and an alternate one that fullscreen
+" programs can use temporarily. These two settings control what escape
+" sequences vim sends to the terminal on startup and exit:
+"
+"   t_ti (terminal init) = \e[?1049h
+"     Sent when vim starts. Tells the terminal to save the current normal
+"     screen and switch to the alternate screen buffer.
+"
+"   t_te (terminal end) = \e[?1049l
+"     Sent when vim exits. Tells the terminal to switch back to the normal
+"     screen buffer and restore what was there before.
+"
+" Without these, vim draws on the normal screen buffer and its output
+" (file contents, line numbers, ~ lines) stays visible after you quit.
+let &t_ti = "\e[?1049h"
+let &t_te = "\e[?1049l"
+
 filetype off
 set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
@@ -69,9 +90,9 @@ set foldmethod=indent
 " Show editing mode in status (-- INSERT --)
 set showmode
 
-" Disable text wrapping
+" Enable text wrapping
 set tw=0
-set nowrap
+set wrap
 
 " Disable backing up files on :w
 set nobackup
@@ -119,8 +140,8 @@ set go-=T
 " Remove the right scroll bar
 set go-=r
 
-" Set a nicer color scheme
-silent! color ron
+" Use dark background for default color scheme
+set background=dark
 
 " Ignore these files during autocomplete
 set wildignore=*.o,*.obj,*.bak,*.exe,*.a,*.dep
@@ -187,12 +208,10 @@ endif
 " Replace all tabs with space
 autocmd! BufWinEnter *.cpp,*.cu.cc,*.cc,*.c,*.h,*.java,*.js,*.py :%s/\t/    /eg
 
-" Highlight all lines longer than 80 characters
-autocmd! BufWinEnter * let w:m2=matchadd('ErrorMsg', '\%>80v.\+', -1)
 
 " Show whitespace at the end of lines, but not the current line when in insert mode.
-highlight ExtraWhitespace ctermbg=lightgrey guibg=lightgrey
-autocmd ColorScheme * highlight ExtraWhitespace guibg=lightgrey
+highlight ExtraWhitespace ctermbg=darkred guibg=#3d1f1f
+autocmd ColorScheme * highlight ExtraWhitespace ctermbg=darkred guibg=#3d1f1f
 autocmd BufWinEnter * match ExtraWhitespace /\s\+$/
 autocmd InsertEnter * match ExtraWhitespace /\s\+\%#\@<!$/
 autocmd InsertLeave * match ExtraWhitespace /\s\+$/
