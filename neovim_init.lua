@@ -1,5 +1,5 @@
 -- =============================================================================
--- Tested on nvim v0.11.5, installed using `sudo snap install nvim --classic`
+-- Tested on nvim v0.11.6, installed using `sudo snap install nvim --classic`
 -- ~/.config/nvim/init.lua
 -- lazy.nvim · Telescope · nvim-tree · treesitter · LSP · nvim-cmp
 -- LSP servers: pyright, ruff, ruby-lsp, ts_ls, rust-analyzer
@@ -7,7 +7,7 @@
 -- Shortcuts (leader = backslash '\')
 -- -----------------------------------------------------------------------------
 -- Telescope:
---   Ctrl-p        Fuzzy find git files
+--   Ctrl-p        Fuzzy find files (includes gitignored)
 --   \b            Fuzzy find open buffers
 --   Ctrl-f        Live grep across project
 --   \s            Find document symbols (functions, classes, etc.)
@@ -15,6 +15,12 @@
 -- nvim-tree:
 --   \t            Toggle file explorer sidebar
 --   \tf           Reveal current file in tree
+--
+-- Aerial (code outline sidebar):
+--   \a            Toggle aerial outline sidebar
+--   o             Toggle expand/collapse a node
+--   l / h         Expand / collapse a node
+--   zo / zc       Expand / collapse (standard Vim fold keys also work)
 --
 -- LSP:
 --   K             Show hover docs / type info
@@ -29,11 +35,11 @@
 -- Folds (treesitter-based, top-level open by default):
 --   za            Toggle fold under cursor
 --   zo / zc       Open / close one fold
---   zR / zM       Open all / close all folds
+--   zO / zC       Open all / close all folds
 --
 -- Completion (nvim-cmp):
 --   Tab / S-Tab   Next / previous item
---   CR            Confirm selection
+--   <Enter>       Confirm selection
 --   C-Space       Trigger completion
 --   C-e           Dismiss menu
 --
@@ -46,6 +52,9 @@
 --   Ctrl-n        New tab
 --   Ctrl-x        Close tab (with confirmation)
 --   Ctrl-h / l    Switch tabs left/right
+--
+-- Clipboard:
+--   Ctrl-c        Copy selection to system clipboard (visual) / copy line (normal)
 --
 -- General:
 --   :TwoSpace     Set indent to 2 spaces
@@ -94,10 +103,57 @@ require("lazy").setup({
         defaults = {
           layout_strategy = "horizontal",
           layout_config = { preview_width = 0.55 },
-          file_ignore_patterns = { "node_modules", ".git/", "__pycache__" },
+          file_ignore_patterns = {
+            "node_modules", ".git/", "__pycache__", ".venv", "venv",
+            "%.o$", "%.obj$", "%.a$", "%.lib$", "%.so$", "%.dylib$", "%.dll$", "%.exe$",
+            "%.pyc$", "%.pyo$", "%.class$", "%.jar$",
+            "%.png$", "%.jpg$", "%.jpeg$", "%.gif$", "%.bmp$", "%.ico$", "%.webp$",
+            "%.pdf$", "%.zip$", "%.tar$", "%.gz$", "%.bz2$", "%.xz$", "%.7z$", "%.rar$",
+            "%.woff$", "%.woff2$", "%.ttf$", "%.eot$",
+            "%.mp3$", "%.mp4$", "%.avi$", "%.mov$", "%.mkv$",
+            "%.db$", "%.sqlite$", "%.sqlite3$", "%.npy$", "%.npz$",
+            "%.pickle$", "%.pkl$", "%.parquet$", "%.feather$", "%.h5$", "%.hdf5$",
+          },
+        },
+        pickers = {
+          find_files = { no_ignore = true },
+          live_grep = { additional_args = { "--no-ignore" } },
         },
       })
       telescope.load_extension("fzf")
+    end,
+  },
+
+  -- aerial: code outline sidebar
+  {
+    "stevearc/aerial.nvim",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",
+      "nvim-tree/nvim-web-devicons",
+    },
+    config = function()
+      require("aerial").setup({
+        backends = { "treesitter", "lsp" },
+        layout = {
+          min_width = 30,
+          default_direction = "left",
+        },
+        filter_kind = {
+          "Class",
+          "Constructor",
+          "Enum",
+          "Function",
+          "Interface",
+          "Method",
+          "Module",
+          "Namespace",
+          "Struct",
+        },
+        keymaps = {
+          ["<C-j>"] = false,
+          ["<C-k>"] = false,
+        },
+      })
     end,
   },
 
@@ -112,8 +168,21 @@ require("lazy").setup({
           group_empty = true,
           icons = { show = { file = true, folder = true, git = true } },
         },
-        filters = { dotfiles = false },
-        git = { enable = true },
+        filters = {
+          dotfiles = false,
+          git_ignored = false,
+          custom = {
+            "^\\.venv$", "^venv$",
+            "\\.o$", "\\.obj$", "\\.a$", "\\.lib$", "\\.so$", "\\.dylib$", "\\.dll$", "\\.exe$",
+            "\\.pyc$", "\\.pyo$", "\\.class$", "\\.jar$",
+            "\\.png$", "\\.jpg$", "\\.jpeg$", "\\.gif$", "\\.bmp$", "\\.ico$", "\\.webp$",
+            "\\.pdf$", "\\.zip$", "\\.tar$", "\\.gz$", "\\.bz2$", "\\.xz$", "\\.7z$", "\\.rar$",
+            "\\.woff$", "\\.woff2$", "\\.ttf$", "\\.eot$",
+            "\\.mp3$", "\\.mp4$", "\\.avi$", "\\.mov$", "\\.mkv$",
+            "\\.db$", "\\.sqlite$", "\\.sqlite3$",
+          },
+        },
+        git = { enable = true, ignore = false },
       })
     end,
   },
@@ -132,6 +201,27 @@ require("lazy").setup({
           vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
         end,
       })
+      -- Auto-install missing parsers (runs async, won't block startup)
+      local ensure = {
+          "lua",
+          "python",
+          "ruby",
+          "typescript",
+          "rust",
+          "cpp",
+          "cuda",
+          "yaml",
+          "json",
+          "markdown",
+          "markdown_inline",
+      }
+      local installed = require("nvim-treesitter.config").get_installed("parsers")
+      local missing = vim.tbl_filter(function(lang)
+        return not vim.list_contains(installed, lang)
+      end, ensure)
+      if #missing > 0 then
+        require("nvim-treesitter").install(missing)
+      end
     end,
   },
 
@@ -188,12 +278,16 @@ opt.foldmethod    = "expr"
 opt.foldexpr      = "v:lua.vim.treesitter.foldexpr()"
 opt.foldenable    = true
 opt.foldlevel     = 1      -- top-level folds open; nested folds closed
+
+vim.keymap.set("n", "zO", "zR", { desc = "Open all folds" })
+vim.keymap.set("n", "zC", "zM", { desc = "Close all folds" })
 opt.wrap          = false
 opt.modeline      = false
 opt.swapfile      = false
 opt.number        = true
 opt.termguicolors = true
 opt.signcolumn    = "yes"   -- always show, avoids layout shifts from LSP diagnostics
+opt.autoread      = true    -- auto-reload files changed outside Neovim
 
 -- Default indent: 2 spaces (same as your vimrc)
 opt.tabstop      = 2
@@ -213,6 +307,11 @@ local map = vim.keymap.set
 -- Disable F1
 map("n", "<F1>", "<Cmd>echo<CR>")
 map("i", "<F1>", "<C-o><Cmd>echo<CR>")
+
+-- Ctrl-C: copy to system clipboard; disable exit-insert behavior in insert mode
+map("v", "<C-c>", '"+y',   { desc = "Copy selection to clipboard" })
+map("n", "<C-c>", '"+yy',  { desc = "Copy line to clipboard" })
+map("i", "<C-c>", "<Nop>", { desc = "Disabled (use Esc)" })
 
 -- Split navigation: Ctrl-j / Ctrl-k
 map("n", "<C-j>", "<C-w><S-w>")
@@ -239,10 +338,13 @@ map("v", "<C-x>", function()
 end)
 
 -- Telescope keymaps
-map("n", "<C-p>", "<Cmd>Telescope git_files<CR>")
+map("n", "<C-p>", "<Cmd>Telescope find_files<CR>")
 map("n", "<leader>b", "<Cmd>Telescope buffers<CR>")
 map("n", "<C-f>", "<Cmd>Telescope live_grep<CR>")
 map("n", "<leader>s", "<Cmd>Telescope lsp_document_symbols<CR>") -- functions/classes list
+
+-- aerial (code outline)
+map("n", "<leader>a", "<Cmd>AerialToggle!<CR>")
 
 -- nvim-tree
 map("n", "<leader>t",  "<Cmd>NvimTreeToggle<CR>")
@@ -261,6 +363,23 @@ vim.api.nvim_create_user_command("FourSpace", "set shiftwidth=4 | set softtabsto
 -- =============================================================================
 -- AUTOCMDS (ported from your vimrc)
 -- =============================================================================
+
+-- Auto-reload files changed outside Neovim
+local reload_group = vim.api.nvim_create_augroup("AutoReloadFile", { clear = true })
+vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI" }, {
+  group = reload_group,
+  callback = function()
+    if vim.fn.getcmdwintype() == "" and vim.bo.buftype == "" then
+      pcall(vim.cmd, "checktime")
+    end
+  end,
+})
+vim.api.nvim_create_autocmd("FileChangedShellPost", {
+  group = reload_group,
+  callback = function()
+    vim.notify("File changed on disk. Buffer reloaded.", vim.log.levels.WARN)
+  end,
+})
 
 -- CUDA filetype overrides (Neovim handles most filetypes natively)
 vim.api.nvim_create_autocmd({ "BufNewFile", "BufReadPost" }, {
@@ -362,6 +481,11 @@ vim.lsp.config('ruff', {
 vim.lsp.config('ruby_lsp', {
   capabilities = capabilities,
   on_attach = on_attach,
+  init_options = {
+    enabledFeatures = {
+      diagnostics = false,
+    },
+  },
 })
 
 vim.lsp.config('ts_ls', {
