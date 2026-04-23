@@ -195,9 +195,13 @@ require("lazy").setup({
       -- Add plugin's runtime/ dir to rtp so bundled queries (folds, indents,
       -- highlights) are available for all languages, even without tree-sitter-cli
       vim.opt.rtp:append(vim.fn.stdpath("data") .. "/lazy/nvim-treesitter/runtime")
-      -- Enable treesitter-based indentation for all buffers
+      -- Enable treesitter-based indentation, except for filetypes where
+      -- Neovim's built-in indent script is better (nvim-treesitter's python
+      -- indent overshoots inside brackets / multi-line expressions).
+      local ts_indent_skip = { python = true }
       vim.api.nvim_create_autocmd("FileType", {
-        callback = function()
+        callback = function(args)
+          if ts_indent_skip[args.match] then return end
           vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
         end,
       })
@@ -418,6 +422,10 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.softtabstop  = 4
     vim.opt_local.tabstop      = 4
     vim.opt_local.shiftwidth   = 4
+    vim.opt_local.expandtab    = true
+    vim.opt_local.textwidth    = 88      -- Black default line length
+    vim.opt_local.colorcolumn  = "89"
+    vim.opt_local.fileformat   = "unix"
     -- Comment / uncomment commands
     vim.api.nvim_buf_create_user_command(0, "C",
       [[<line1>,<line2> s/\(.*\)/#\1/g]], { range = true })
