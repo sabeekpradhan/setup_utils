@@ -195,16 +195,9 @@ require("lazy").setup({
       -- Add plugin's runtime/ dir to rtp so bundled queries (folds, indents,
       -- highlights) are available for all languages, even without tree-sitter-cli
       vim.opt.rtp:append(vim.fn.stdpath("data") .. "/lazy/nvim-treesitter/runtime")
-      -- Enable treesitter-based indentation, except for filetypes where
-      -- Neovim's built-in indent script is better (nvim-treesitter's python
-      -- indent overshoots inside brackets / multi-line expressions).
-      local ts_indent_skip = { python = true }
-      vim.api.nvim_create_autocmd("FileType", {
-        callback = function(args)
-          if ts_indent_skip[args.match] then return end
-          vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
-        end,
-      })
+      -- Indentation is handled by Neovim's built-in filetype indent scripts.
+      -- nvim-treesitter's indentexpr over-indents YAML and Python; the shipped
+      -- scripts respect shiftwidth and match the file's convention.
       -- Auto-install missing parsers (runs async, won't block startup)
       local ensure = {
           "lua",
@@ -553,3 +546,4 @@ vim.diagnostic.config({
   update_in_insert = false, -- don't flicker while typing
   severity_sort   = true,
 })
+
