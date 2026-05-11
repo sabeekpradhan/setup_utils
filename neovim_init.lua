@@ -32,7 +32,7 @@
 --   \e            Show diagnostic in floating window
 --   Ctrl-O        Return to the previous context after going to a definition/reference.
 --
--- Folds (treesitter-based, top-level open by default):
+-- Folds (treesitter-based, all open by default):
 --   za            Toggle fold under cursor
 --   zo / zc       Open / close one fold
 --   zO / zC       Open all / close all folds
@@ -274,7 +274,8 @@ opt.scrolloff     = 5
 opt.foldmethod    = "expr"
 opt.foldexpr      = "v:lua.vim.treesitter.foldexpr()"
 opt.foldenable    = true
-opt.foldlevel     = 1      -- top-level folds open; nested folds closed
+opt.foldlevel      = 99     -- start with all folds open
+opt.foldlevelstart = 99     -- ...for newly opened buffers too
 
 vim.keymap.set("n", "zO", "zR", { desc = "Open all folds" })
 vim.keymap.set("n", "zC", "zM", { desc = "Close all folds" })
@@ -342,6 +343,22 @@ map("n", "<leader>s", "<Cmd>Telescope lsp_document_symbols<CR>") -- functions/cl
 
 -- aerial (code outline)
 map("n", "<leader>a", "<Cmd>AerialToggle!<CR>")
+
+-- Auto-open aerial for Python and YAML files. Deferred via vim.schedule so it
+-- runs after all other FileType callbacks finish — otherwise AerialOpen shifts
+-- focus mid-event and later ftplugin code edits the wrong (aerial) buffer.
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "python", "yaml" },
+  callback = function()
+    local src = vim.api.nvim_get_current_win()
+    vim.schedule(function()
+      vim.cmd("AerialOpen")
+      if vim.api.nvim_win_is_valid(src) then
+        vim.api.nvim_set_current_win(src)
+      end
+    end)
+  end,
+})
 
 -- nvim-tree
 map("n", "<leader>t",  "<Cmd>NvimTreeToggle<CR>")
