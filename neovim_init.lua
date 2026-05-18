@@ -344,11 +344,12 @@ map("n", "<leader>s", "<Cmd>Telescope lsp_document_symbols<CR>") -- functions/cl
 -- aerial (code outline)
 map("n", "<leader>a", "<Cmd>AerialToggle!<CR>")
 
--- Auto-open aerial for Python and YAML files. Deferred via vim.schedule so it
--- runs after all other FileType callbacks finish — otherwise AerialOpen shifts
--- focus mid-event and later ftplugin code edits the wrong (aerial) buffer.
+-- Auto-open aerial for Python, YAML, Rust, JS, and TS files. Deferred via
+-- vim.schedule so it runs after all other FileType callbacks finish — otherwise
+-- AerialOpen shifts focus mid-event and later ftplugin code edits the wrong
+-- (aerial) buffer.
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "python", "yaml" },
+  pattern = { "python", "yaml", "rust", "javascript", "javascriptreact", "typescript", "typescriptreact" },
   callback = function()
     local src = vim.api.nvim_get_current_win()
     vim.schedule(function()
