@@ -1,6 +1,6 @@
 [user]
   name = sabeek
-  email = sabeekpradhan@gmail.com
+  email = sabeek@roundabout.tech
 [core]
   editor = vim
   excludesfile = ~/.gitignore
@@ -17,7 +17,7 @@
 [credential]
   helper = cache --timeout=86400
 [push]
-  default = matching
+	default = simple
 [merge]
   tool = vimdiff
   conflictstyle = diff3
@@ -53,6 +53,29 @@
       echo \"usage: git stack-rebase <new-base> [dropped-branch]\" >&2; \
       exit 1; \
     fi; \
+  }; f"
+  # Rebase the current branch onto <new-base>, then recursively rebase every
+  # descendant branch (discovered via upstream tracking, which `git create`
+  # sets) onto its rebased parent. Handles fan-out trees of siblings to any
+  # depth -- unlike `stack-rebase`, which only carries a single linear stack.
+  # Idempotent: safe to re-run after resolving a conflict mid-tree.
+  tree-rebase = "!f() { \
+    walk() { \
+      for child in $(git for-each-ref --format='%(refname:short) %(upstream:short)' refs/heads \
+                       | awk -v p=\"$1\" '$2==p {print $1}'); do \
+        base=$(git merge-base --fork-point \"$1\" \"$child\" 2>/dev/null \
+                 || git merge-base \"$1\" \"$child\"); \
+        echo \"-> rebasing $child onto $1\"; \
+        git rebase --onto \"$2\" \"$base\" \"$child\" || return 1; \
+        walk \"$child\" \"$(git rev-parse \"$child\")\" || return 1; \
+      done; \
+    }; \
+    if [ \"$#\" -ne 1 ]; then echo 'usage: git tree-rebase <new-base>' >&2; exit 1; fi; \
+    root=$(git symbolic-ref --short HEAD); \
+    echo \"Tree-rebasing '$root' (and all descendants) onto '$1'\"; \
+    git rebase \"$1\" || exit 1; \
+    walk \"$root\" \"$(git rev-parse HEAD)\" || exit 1; \
+    git checkout \"$root\"; \
   }; f"
   # Pull and checkout aliases that also update the submodules.
   pulls = "!f() { git pull \"$@\" && git submodule update --init --recursive; }; f"
@@ -113,3 +136,8 @@
   pullc = "!git pull --rebase origin `git curbranch`"
   pr-parent = "!git pushh && hub pull-request -b `git parent` -h `git curbranch` $@"
   refresh = "!git fetch origin $1:$1"
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
