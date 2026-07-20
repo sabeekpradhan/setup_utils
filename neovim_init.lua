@@ -7,7 +7,8 @@
 -- Shortcuts (leader = backslash '\')
 -- -----------------------------------------------------------------------------
 -- Telescope:
---   Ctrl-p        Fuzzy find files (includes gitignored)
+--   Ctrl-p        Fuzzy find files (incl. gitignored + hidden; prunes deps/output)
+--   \p            Fuzzy find files EVERYWHERE incl. .venv/build/output (slow)
 --   \b            Fuzzy find open buffers
 --   Ctrl-f        Live grep across project
 --   \s            Find document symbols (functions, classes, etc.)
@@ -84,6 +85,10 @@ vim.g.maplocalleader = "\\"
 vim.g.loaded_netrw       = 1
 vim.g.loaded_netrwPlugin = 1
 
+-- Debian/Ubuntu's fd-find package installs the binary as `fdfind`, not `fd`.
+-- Detect the real name once; used by Telescope find_files below and the \p map.
+local fd_bin = vim.fn.executable("fd") == 1 and "fd" or "fdfind"
+
 -- =============================================================================
 -- PLUGINS
 -- =============================================================================
@@ -116,8 +121,34 @@ require("lazy").setup({
           },
         },
         pickers = {
-          find_files = { no_ignore = true },
-          live_grep = { additional_args = { "--no-ignore" } },
+          -- Include gitignored + hidden files (so .env, .github/, generated
+          -- configs, etc. are findable), but use --no-ignore-vcs rather than
+          -- --no-ignore so fd/rg STILL honor .ignore files. That lets us prune
+          -- the few giant dirs (deps + build/eval output) at traversal time —
+          -- file_ignore_patterns can't, since it filters only AFTER the walk,
+          -- which is what made Ctrl-P slow. Repo-specific giants live in each
+          -- repo's .ignore; the always-junk ones are excluded here.
+          find_files = {
+            find_command = {
+              fd_bin, "--type", "f", "--color", "never",
+              "--hidden", "--no-ignore-vcs",
+              "--exclude", ".git",
+              "--exclude", ".venv",
+              "--exclude", "venv",
+              "--exclude", "node_modules",
+              "--exclude", "__pycache__",
+            },
+          },
+          live_grep = {
+            additional_args = {
+              "--no-ignore-vcs", "--hidden",
+              "--glob", "!.git",
+              "--glob", "!.venv",
+              "--glob", "!venv",
+              "--glob", "!node_modules",
+              "--glob", "!__pycache__",
+            },
+          },
         },
       })
       telescope.load_extension("fzf")
@@ -337,6 +368,9 @@ end)
 
 -- Telescope keymaps
 map("n", "<C-p>", "<Cmd>Telescope find_files<CR>")
+-- Escape hatch: search EVERYTHING, including deps/build/output dirs normally
+-- pruned via .ignore (.venv, eval_results, corridors/target, ...). Slow in big trees.
+map("n", "<leader>p", "<Cmd>Telescope find_files find_command=" .. fd_bin .. ",--type,f,--color,never,--hidden,--no-ignore<CR>")
 map("n", "<leader>b", "<Cmd>Telescope buffers<CR>")
 map("n", "<C-f>", "<Cmd>Telescope live_grep<CR>")
 map("n", "<leader>s", "<Cmd>Telescope lsp_document_symbols<CR>") -- functions/classes list
