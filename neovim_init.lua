@@ -27,8 +27,8 @@
 --   K             Show hover docs / type info
 --   gd            Go to definition
 --   gr            List references
---   \rn           Rename symbol
---   \ca           Code action
+--   \rn           Rename symbol (writes every file the rename touched)
+--   \ca           Code action (likewise, when the action spans files)
 --   [d / ]d       Jump to prev/next diagnostic
 --   \e            Show diagnostic in floating window
 --   Ctrl-O        Return to the previous context after going to a definition/reference.
@@ -557,6 +557,120 @@ vim.lsp.config('rust_analyzer', {
 })
 
 vim.lsp.enable({ 'pyright', 'ruff', 'ruby_lsp', 'ts_ls', 'rust_analyzer' })
+
+-- =============================================================================
+-- LSP MULTI-FILE EDITS: auto-save the files they touch
+-- =============================================================================
+-- \rn and multi-file \ca edits apply their changes by loading each affected file
+-- as a buffer and editing it in memory, leaving call-site files dirty and easy to
+-- miss. Every such edit funnels through vim.lsp.util.apply_workspace_edit -- the
+-- textDocument/rename handler, the server-initiated workspace/applyEdit handler,
+-- and vim.lsp.buf.code_action all call it -- so wrapping it once covers them all.
+local apply_workspace_edit = vim.lsp.util.apply_workspace_edit
+
+-- URIs of a workspace edit's text-edit targets. 'rename'/'create'/'delete'
+-- documentChanges are skipped: those hit the filesystem directly and leave
+-- nothing modified in memory.
+local function edited_uris(workspace_edit)
+  local uris, seen = {}, {}
+  local function add(uri)
+    if uri and not seen[uri] then
+      seen[uri] = true
+      table.insert(uris, uri)
+    end
+  end
+  for _, change in ipairs(workspace_edit.documentChanges or {}) do
+    if not change.kind and change.textDocument then
+      add(change.textDocument.uri)
+    end
+  end
+  for uri in pairs(workspace_edit.changes or {}) do
+    add(uri)
+  end
+  return uris
+end
+
+-- Shortest readable form of a buffer name: relative to cwd when it lives below it.
+local function display_name(bufnr)
+  return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":.")
+end
+
+-- Joins up to `limit` names, summarizing the remainder as "+N more".
+local function name_list(names, limit)
+  if #names <= limit then
+    return table.concat(names, ", ")
+  end
+  return table.concat(vim.list_slice(names, 1, limit), ", ")
+    .. (", +%d more"):format(#names - limit)
+end
+
+-- Writes the buffers that were clean before the edit, then reports what was
+-- saved, what was left modified, and anything that failed to write.
+local function write_edited_bufs(clean_bufnrs, skipped_names)
+  local saved_names, failed_names = {}, {}
+  for _, bufnr in ipairs(clean_bufnrs) do
+    -- A 'delete' change in the same edit -- or the bdelete! that
+    -- vim.lsp.util.rename does after its saveas! -- can invalidate a bufnr
+    -- collected before the edit was applied.
+    if vim.api.nvim_buf_is_valid(bufnr)
+      and vim.api.nvim_buf_get_name(bufnr) ~= ""
+      and vim.bo[bufnr].modified
+      and vim.bo[bufnr].buftype == ""
+    then
+      local name = display_name(bufnr)
+      -- Autocmds stay on so the servers still get textDocument/didSave.
+      local ok = pcall(vim.api.nvim_buf_call, bufnr, function()
+        vim.cmd("silent update")
+      end)
+      table.insert(ok and saved_names or failed_names, name)
+    end
+  end
+
+  if #saved_names > 0 then
+    local msg = ("LSP edit: saved %d file%s (%s)")
+      :format(#saved_names, #saved_names == 1 and "" or "s", name_list(saved_names, 5))
+    if #skipped_names > 0 then
+      msg = msg .. (" -- left modified: %s"):format(name_list(skipped_names, 5))
+    end
+    vim.notify(msg, vim.log.levels.INFO)
+  elseif #skipped_names > 0 then
+    vim.notify(
+      ("LSP edit: left modified, save yourself: %s"):format(name_list(skipped_names, 5)),
+      vim.log.levels.INFO
+    )
+  end
+
+  if #failed_names > 0 then
+    vim.notify(
+      ("LSP edit: could not write %s"):format(name_list(failed_names, 5)),
+      vim.log.levels.WARN
+    )
+  end
+end
+
+vim.lsp.util.apply_workspace_edit = function(workspace_edit, position_encoding)
+  local cur_bufnr = vim.api.nvim_get_current_buf()
+  local clean_bufnrs, skipped_names = {}, {}
+  for _, uri in ipairs(edited_uris(workspace_edit)) do
+    -- Resolve before applying: it is the pre-edit 'modified' state that decides
+    -- whether a file is ours to save. vim.uri_to_bufnr is what the wrapped call
+    -- uses too, so this creates no buffer it would not have created anyway.
+    local bufnr = vim.uri_to_bufnr(uri)
+    if not vim.bo[bufnr].modified then
+      table.insert(clean_bufnrs, bufnr)
+    elseif bufnr ~= cur_bufnr then
+      -- Never write a file that already held unsaved work. The buffer you are
+      -- sitting in shows its own '+' marker, so only report the hidden ones.
+      table.insert(skipped_names, display_name(bufnr))
+    end
+  end
+
+  apply_workspace_edit(workspace_edit, position_encoding)
+
+  -- Deferred so the writes (and the BufWritePre/Post autocmds that drive
+  -- textDocument/didSave) run after the LSP handler has returned.
+  vim.schedule(function() write_edited_bufs(clean_bufnrs, skipped_names) end)
+end
 
 -- =============================================================================
 -- COMPLETION (nvim-cmp)
