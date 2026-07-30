@@ -29,6 +29,9 @@
 --   gr            List references
 --   \rn           Rename symbol (writes every file the rename touched)
 --   \ca           Code action (likewise, when the action spans files)
+--   u / Ctrl-R    Undo/redo a multi-file rename across all of its files at once,
+--                 while it is still the newest change in the file you are in;
+--                 ordinary undo/redo otherwise
 --   [d / ]d       Jump to prev/next diagnostic
 --   \e            Show diagnostic in floating window
 --   Ctrl-O        Return to the previous context after going to a definition/reference.
@@ -559,14 +562,21 @@ vim.lsp.config('rust_analyzer', {
 vim.lsp.enable({ 'pyright', 'ruff', 'ruby_lsp', 'ts_ls', 'rust_analyzer' })
 
 -- =============================================================================
--- LSP MULTI-FILE EDITS: auto-save the files they touch
+-- LSP MULTI-FILE EDITS: auto-save the files they touch, and undo them as a unit
 -- =============================================================================
 -- \rn and multi-file \ca edits apply their changes by loading each affected file
 -- as a buffer and editing it in memory, leaving call-site files dirty and easy to
 -- miss. Every such edit funnels through vim.lsp.util.apply_workspace_edit -- the
 -- textDocument/rename handler, the server-initiated workspace/applyEdit handler,
 -- and vim.lsp.buf.code_action all call it -- so wrapping it once covers them all.
+-- The wrapper writes every file the edit touched, and records where each buffer's
+-- undo history stood either side of it so u / <C-r> can move the edit as a unit
+-- instead of leaving the project half-renamed.
 local apply_workspace_edit = vim.lsp.util.apply_workspace_edit
+
+-- The most recent multi-file text edit, or nil when there is nothing to move:
+-- { entries = { { bufnr, seq_before, seq_after, saved } }, state = "applied"|"undone" }
+local last_edit = nil
 
 -- URIs of a workspace edit's text-edit targets. 'rename'/'create'/'delete'
 -- documentChanges are skipped: those hit the filesystem directly and leave
@@ -590,6 +600,52 @@ local function edited_uris(workspace_edit)
   return uris
 end
 
+-- True when an edit carries an explicit file operation. u cannot reverse one, so
+-- such an edit is never registered as a group: a partial group undo is worse
+-- than none.
+local function has_file_ops(workspace_edit)
+  for _, change in ipairs(workspace_edit.documentChanges or {}) do
+    if change.kind then
+      return true
+    end
+  end
+  return false
+end
+
+-- Closes a buffer's current undo block so the next change starts a new one.
+-- Assigning 'undolevels' is the Lua form of `:let &l:undolevels = &l:undolevels`:
+-- the assignment is a no-op and the point is the u_sync() it triggers. Without it
+-- an LSP edit can share an undo block with the edit made just before it, and
+-- rewinding the edit would silently take that work with it.
+local function break_undo(bufnr)
+  if vim.api.nvim_buf_is_loaded(bufnr) then
+    vim.bo[bufnr].undolevels = vim.bo[bufnr].undolevels
+  end
+end
+
+-- Whether a URI already pointed at a file with content. An edit can bring a file
+-- into existence with no 'create' change of its own: ts_ls "Move to a new file"
+-- creates an empty file server-side and then fills it through an ordinary text
+-- edit, which over the wire is indistinguishable from a plain two-file edit.
+-- Undoing that would leave an empty file behind rather than remove it, so an
+-- empty target disqualifies the whole group. Nothing is lost by the check: a file
+-- with no content has no symbol in it to rename, so it never takes part in a
+-- genuine multi-file rename.
+local function has_content(uri)
+  local stat = vim.uv.fs_stat(vim.uri_to_fname(uri))
+  return stat ~= nil and stat.size > 0
+end
+
+-- Undo sequence number a buffer currently sits at; 0 for one not loaded yet,
+-- which is where a call-site file the edit is about to open starts from.
+local function undo_seq(bufnr)
+  if not vim.api.nvim_buf_is_loaded(bufnr) then
+    return 0
+  end
+  local ok, tree = pcall(vim.fn.undotree, bufnr)
+  return ok and tree.seq_cur or 0
+end
+
 -- Shortest readable form of a buffer name: relative to cwd when it lives below it.
 local function display_name(bufnr)
   return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":.")
@@ -604,25 +660,34 @@ local function name_list(names, limit)
     .. (", +%d more"):format(#names - limit)
 end
 
--- Writes the buffers that were clean before the edit, then reports what was
--- saved, what was left modified, and anything that failed to write.
-local function write_edited_bufs(clean_bufnrs, skipped_names)
-  local saved_names, failed_names = {}, {}
-  for _, bufnr in ipairs(clean_bufnrs) do
-    -- A 'delete' change in the same edit -- or the bdelete! that
-    -- vim.lsp.util.rename does after its saveas! -- can invalidate a bufnr
-    -- collected before the edit was applied.
-    if vim.api.nvim_buf_is_valid(bufnr)
-      and vim.api.nvim_buf_get_name(bufnr) ~= ""
-      and vim.bo[bufnr].modified
-      and vim.bo[bufnr].buftype == ""
-    then
-      local name = display_name(bufnr)
-      -- Autocmds stay on so the servers still get textDocument/didSave.
-      local ok = pcall(vim.api.nvim_buf_call, bufnr, function()
-        vim.cmd("silent update")
-      end)
-      table.insert(ok and saved_names or failed_names, name)
+-- True when a target buffer still exists as a real file we could write.
+local function is_writable_file(bufnr)
+  -- A 'delete' change in the same edit -- or the bdelete! that
+  -- vim.lsp.util.rename does after its saveas! -- can invalidate a bufnr
+  -- collected before the edit was applied.
+  return vim.api.nvim_buf_is_valid(bufnr)
+    and vim.api.nvim_buf_get_name(bufnr) ~= ""
+    and vim.bo[bufnr].buftype == ""
+end
+
+-- Writes the files that were clean before the edit, noting on each entry whether
+-- it reached disk, then reports what was saved, what was left modified, and
+-- anything that failed to write.
+local function write_edited_bufs(targets)
+  local saved_names, skipped_names, failed_names = {}, {}, {}
+  for _, entry in ipairs(targets) do
+    if is_writable_file(entry.bufnr) and vim.bo[entry.bufnr].modified then
+      local name = display_name(entry.bufnr)
+      if entry.was_clean then
+        -- Autocmds stay on so the servers still get textDocument/didSave.
+        local ok = pcall(vim.api.nvim_buf_call, entry.bufnr, function()
+          vim.cmd("silent update")
+        end)
+        entry.saved = ok
+        table.insert(ok and saved_names or failed_names, name)
+      elseif not entry.is_current then
+        table.insert(skipped_names, name)
+      end
     end
   end
 
@@ -648,29 +713,144 @@ local function write_edited_bufs(clean_bufnrs, skipped_names)
   end
 end
 
+-- Remembers the edit as one undoable unit, but only when u could actually move
+-- it: nothing created or deleted for undo to reverse, and more than one file
+-- changed -- a single-file edit already undoes correctly with a plain u. Always
+-- assigns, so a newer edit can never leave a stale group behind.
+local function register_group(targets, undoable)
+  local entries = {}
+  for _, entry in ipairs(targets) do
+    if vim.api.nvim_buf_is_valid(entry.bufnr) and entry.seq_after > entry.seq_before then
+      table.insert(entries, entry)
+    end
+  end
+  last_edit = (undoable and #entries > 1)
+    and { entries = entries, state = "applied" }
+    or nil
+end
+
 vim.lsp.util.apply_workspace_edit = function(workspace_edit, position_encoding)
   local cur_bufnr = vim.api.nvim_get_current_buf()
-  local clean_bufnrs, skipped_names = {}, {}
+  local targets = {}
   for _, uri in ipairs(edited_uris(workspace_edit)) do
-    -- Resolve before applying: it is the pre-edit 'modified' state that decides
-    -- whether a file is ours to save. vim.uri_to_bufnr is what the wrapped call
-    -- uses too, so this creates no buffer it would not have created anyway.
+    -- Resolve before applying: it is the pre-edit state that decides whether a
+    -- file is ours to save and where its undo history stood. vim.uri_to_bufnr is
+    -- what the wrapped call uses too, so this creates no buffer it would not have.
     local bufnr = vim.uri_to_bufnr(uri)
-    if not vim.bo[bufnr].modified then
-      table.insert(clean_bufnrs, bufnr)
-    elseif bufnr ~= cur_bufnr then
+    break_undo(bufnr)
+    table.insert(targets, {
+      bufnr = bufnr,
       -- Never write a file that already held unsaved work. The buffer you are
       -- sitting in shows its own '+' marker, so only report the hidden ones.
-      table.insert(skipped_names, display_name(bufnr))
-    end
+      was_clean = not vim.bo[bufnr].modified,
+      is_current = bufnr == cur_bufnr,
+      seq_before = undo_seq(bufnr),
+      pre_existing = has_content(uri),
+    })
   end
 
   apply_workspace_edit(workspace_edit, position_encoding)
 
+  -- Sealed and read synchronously: no keystroke can land inside the edit's undo
+  -- block, or move a buffer before its position has been recorded.
+  local undoable = not has_file_ops(workspace_edit)
+  for _, entry in ipairs(targets) do
+    break_undo(entry.bufnr)
+    entry.seq_after = undo_seq(entry.bufnr)
+    undoable = undoable and entry.pre_existing
+  end
+
   -- Deferred so the writes (and the BufWritePre/Post autocmds that drive
   -- textDocument/didSave) run after the LSP handler has returned.
-  vim.schedule(function() write_edited_bufs(clean_bufnrs, skipped_names) end)
+  vim.schedule(function()
+    write_edited_bufs(targets)
+    register_group(targets, undoable)
+  end)
 end
+
+-- True when the recorded edit is still exactly the most recent change in every
+-- file it touched, so moving it as a unit cannot clobber anything newer. The
+-- current buffer has to be one of them: u should only ever act on the file you
+-- are in. A count (3u) always takes the ordinary path.
+local function group_ready(state, seq_key)
+  if not last_edit or last_edit.state ~= state or vim.v.count ~= 0 then
+    return false
+  end
+  local cur_bufnr = vim.api.nvim_get_current_buf()
+  local includes_current = false
+  for _, entry in ipairs(last_edit.entries) do
+    if not vim.api.nvim_buf_is_valid(entry.bufnr)
+      or undo_seq(entry.bufnr) ~= entry[seq_key]
+    then
+      return false
+    end
+    includes_current = includes_current or entry.bufnr == cur_bufnr
+  end
+  return includes_current
+end
+
+-- Rewinds (or re-applies) every file in the edit and rewrites the ones we saved.
+local function move_group(seq_key, what)
+  local moved, failed = {}, {}
+  for _, entry in ipairs(last_edit.entries) do
+    local name = display_name(entry.bufnr)
+    local ok = pcall(vim.api.nvim_buf_call, entry.bufnr, function()
+      vim.cmd("silent undo " .. entry[seq_key])
+      -- Unconditional, because rewinding can leave 'modified' false while the
+      -- buffer no longer matches what we wrote -- :update would skip the file
+      -- and the revert would never reach disk. Files deliberately left dirty
+      -- are rewound but never written, same policy as the save side.
+      if entry.saved and is_writable_file(entry.bufnr) then
+        vim.cmd("silent write")
+      end
+    end)
+    table.insert(ok and moved or failed, name)
+  end
+
+  if #moved > 0 then
+    vim.notify(
+      ("LSP %s: %d file%s (%s)")
+        :format(what, #moved, #moved == 1 and "" or "s", name_list(moved, 5)),
+      vim.log.levels.INFO
+    )
+  end
+  if #failed > 0 then
+    vim.notify(
+      ("LSP %s: failed on %s"):format(what, name_list(failed, 5)),
+      vim.log.levels.WARN
+    )
+  end
+end
+
+-- Hands the keypress back to Vim untouched, count included. Fed rather than run
+-- through vim.cmd("normal!") so Vim reports its own errors the way it always
+-- does -- E21 in a non-modifiable buffer, "Already at oldest change" at the end
+-- of the history -- instead of surfacing a Lua traceback from inside the mapping.
+local function feed_stock(key)
+  vim.api.nvim_feedkeys(vim.v.count1 .. key, "n", false)
+end
+
+-- u and <C-r> move a multi-file edit as a unit while it is still the most recent
+-- change in the file you are in; anywhere else they are ordinary undo and redo.
+-- So your own edits are always dealt with first, and only once they are undone
+-- does u reach the rename underneath them.
+map("n", "u", function()
+  if group_ready("applied", "seq_after") then
+    move_group("seq_before", "undo")
+    last_edit.state = "undone"
+  else
+    feed_stock("u")
+  end
+end)
+
+map("n", "<C-r>", function()
+  if group_ready("undone", "seq_before") then
+    move_group("seq_after", "redo")
+    last_edit.state = "applied"
+  else
+    feed_stock(vim.keycode("<C-r>"))
+  end
+end)
 
 -- =============================================================================
 -- COMPLETION (nvim-cmp)
