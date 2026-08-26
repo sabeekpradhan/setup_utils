@@ -271,6 +271,7 @@ require("lazy").setup({
           "ruby_lsp",      -- Ruby / Rails
           "ts_ls",         -- TypeScript / Next.js
           "rust_analyzer", -- Rust
+          "protols",       -- Protocol Buffers (.proto)
         },
         automatic_installation = true,
       })
@@ -559,7 +560,12 @@ vim.lsp.config('rust_analyzer', {
   },
 })
 
-vim.lsp.enable({ 'pyright', 'ruff', 'ruby_lsp', 'ts_ls', 'rust_analyzer' })
+vim.lsp.config('protols', {
+  capabilities = capabilities,
+  on_attach = on_attach,
+})
+
+vim.lsp.enable({ 'pyright', 'ruff', 'ruby_lsp', 'ts_ls', 'rust_analyzer', 'protols' })
 
 -- =============================================================================
 -- LSP MULTI-FILE EDITS: auto-save the files they touch, and undo them as a unit
